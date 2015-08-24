@@ -1,19 +1,16 @@
 #!/bin/bash
-# This script is a simple tool for removing a large amount of files quickly and safely.
+# This script is a simple tool for quickly updating or fixing WordPress core files.
 author="Dan Pock"
-ver="0.0.1 alpha"
+ver="0.0.5 alpha"
 progFolder="/root/scripts/wpupdater"
 progMD5="/root/scripts/wpupdater/wpupdater.md5"
 tempFolder="/home/temp/wpupdater"
 temp="${tempFolder}/failtemp"
-ftemp="${tempFolder}/ftemp"
-dtemp="${tempFolder}/dtemp"
-utemp="${tempFolder}/utemp"
-ltemp="${tempFolder}/ltemp"
 
 # Vars
 DEBUG=0
 SKIP=0
+latestStaged=0;
 liveVer=`curl -s 'https://api.wordpress.org/core/version-check/1.7/?latest'|grep -Po '"current":.*?[^\\\]",'|head -1|cut -d'"' -f4`
 wpSRC="https://wordpress.org/latest.tar.gz"
 wpSRCmd5="https://wordpress.org/latest.tar.gz.md5"
@@ -25,6 +22,34 @@ sshIP=`echo $SSH_CLIENT|awk '{print$1}'`
 DATE=`date +%y%m%d%H%S`
 color="${progFolder}/colors"
 
+
+# Function to catch the priority flags.
+while getopts ":u:t:hds" opt; do
+  case "${opt}" in
+    s)
+      SKIP=1
+    ;;
+    t)
+      TEST=1
+    ;;
+    d)
+      DEBUG=1
+      echo "Debugging Enabled"
+    ;;
+  esac
+done;
+
+# clear temps
+clearTemp() {
+  if [ -d "${tempFolder}" ]; then
+    rm -rf ${tempFolder};
+  fi
+  if [ ! -d "${tempFolder}" ]; then
+    mkdir -p ${tempFolder};
+  fi
+}
+clearTemp;
+
 # init function
 prep() {
   if [ ! -d "${progFolder}" ]; then
@@ -32,12 +57,6 @@ prep() {
     wget -o /dev/null --output-document ${color} ${webColor} > /dev/null
     wget -o /dev/null --output-document ${progMd5} ${webMD5} > /dev/null
   fi 
-  if [ -d "${tempFolder}" ]; then
-    rm -rf ${tempFolder};
-  fi
-  if [ ! -d "${tempFolder}" ]; then
-    mkdir -p ${tempFolder};
-  fi
   echo "Prep Done. Temps Cleared";
 }
 
@@ -55,18 +74,6 @@ if [ -d "${progFolder}" ]; then
   fi
 fi
 
-# Function to catch the priority flags.
-while getopts ":u:t:hpaldsu" opt; do
-  case "${opt}" in
-    s)
-      SKIP=1
-    ;;
-    d)
-      DEBUG=1
-      echo "Debugging Enabled"
-    ;;
-  esac
-done;
 
 # Debug for web versions
 if [[ ${DEBUG} -eq "1" ]]; then
@@ -80,17 +87,18 @@ fi
 valHash=`cat ${progMD5}|cut -d" " -f1`
 liveHash=`md5sum ${progFolder}/wpupdater.sh|cut -d" " -f1`
 if [[ ${DEBUG} -eq "1" ]]; then
-  echo "The live hash is: ${liveHash}";
-  echo "The comparing hash is: ${valHash}";
+  echo "The current hash is: ${liveHash}";
+  echo "The expect. hash is: ${valHash}";
 fi
 if [ "${valHash}" == "${liveHash}"  ]; then
   if [[ ${DEBUG} -eq "1" ]]; then
     echo "The Hashs match each other; the program will proceed";
   fi
 elif [ "${valHash}" != "${liveHash}"  ]; then
-    echo "There is a Hash mismatch; exiting now."
-    echo "In the future you might be able to skip this with a flag."
+    echo "There is a Hash mismatch."
     if [[ ${SKIP} -eq "0" ]]; then
+      echo "In the future you might be able to skip this with a flag."
+      echo "Exiting now."
       exit;
     fi
     if [[ ${SKIP} -eq "1" ]]; then
@@ -119,10 +127,10 @@ fi
 # Header
 header() {
         echo -e "${blue}Easy WPupdater v$ver"
-        echo "         (C) 2015, Dan Pock <dpock@liquidweb.com>, LiquidWeb"
+        echo "         (C) 2015, Dan Pock <dpock@liquidweb.com>, LiquidWeb, Inc."
         echo -e "${bcyan}This program may be freely redistributed under the terms of the GNU GPL v2"
         echo ""
-        echo -e ${On_Purple}${bblack}${line}${esc}
+        echo -e ${bgreen}${line}${esc}
 }
 
 # Usage function
@@ -177,9 +185,9 @@ countDis(){
 # checks if folder has structure to match a WP install
 function wpCheck {
   wpValid=0;
-  echo "Starting WordPress check on: $1"
+  echo -e "${bcyan}Starting WordPress check on: ${esc}$1"
   if [[ ${DEBUG} -eq "1" ]]; then
-    echo "doing a check for wp-admin"  
+    echo "Doing a check for wp-admin"  
   fi
   if [[ -d $1/wp-admin ]]; then
     wpValid=1;
@@ -187,7 +195,7 @@ function wpCheck {
 
   if [[ ${DEBUG} -eq "1" ]]; then
     echo "The wp-admin results are [1]: ${wpValid}"  
-    echo "doing a check for wp-include"  
+    echo "Doing a check for wp-include"  
   fi
   if [[ -d $1/wp-includes ]]; then
     wpValid=2;
@@ -195,28 +203,30 @@ function wpCheck {
 
   if [[ ${DEBUG} -eq "1" ]]; then
     echo "The wp-includes results are [2]: ${wpValid}"  
-    echo "doing a check for both wp-admin & wp-include"  
+    echo "Doing a check for both wp-admin & wp-include"  
   fi
   if [[ -d $1/wp-admin ]] & [[ -d $1/wp-includes ]]; then
     wpValid=3;
+    if [[ -f $1/wp-config.php ]]; then
+      wpValid=4;
+      cpUser=`ls -l ${1}/wp-config.php|awk '{print $3"."$4}'`
+    fi
   fi
-  echo "This will have done things and it will report back"
   if [[ ${DEBUG} -eq "1" ]]; then
-    echo "The results for both are [3]: ${wpValid}"  
-    echo "The overall results are [3]: ${wpValid}"  
+    echo "The overall results are [3/4]: ${wpValid}"  
   fi
-  if [[ ${wpValid} -eq "4" ]]; then
+  if [[ ${wpValid} -eq "5" ]]; then
     echo "Invalid value retuned for wpValid; exiting."
     exit
   fi
-  if [[ ${wpValid} -eq "0" ]] & [[ ${wpValid} -eq "1" ]] & [[ ${wpValid} -eq "2" ]]; then
-    echo "Seems to be missing one of the core folders; exiting."
+  if [[ ${wpValid} -eq "0" ]] || [[ ${wpValid} -eq "1" ]] || [[ ${wpValid} -eq "2" ]]; then
+    echo "Seems to be missing one, or more, of the core folders; exiting."
     exit
   fi
-  if [[ ${wpValid} -eq "3" ]]; then
-    echo "I think we found a valid WordPress, checking version now."
+  if [[ ${wpValid} -eq "3" ]] || [[ ${wpValid} -eq "4" ]]; then
+    echo -e "${bgreen}I think we found a valid WordPress, checking version now.${esc}"
     if [[ ${DEBUG} -eq "1" ]]; then
-      echo "Checking ${1}wp-includes/version.php for the version."  
+      echo "Checking ${1}/wp-includes/version.php for the version"  
     fi
     wpVersion $1
   fi
@@ -227,51 +237,193 @@ function wpCheck {
 # 1 = found the wp-admin folder
 # 2 = found the wp-include folder
 # 3 = found both wp-{admin,include} folders
-# 4 = ERROR: You've gone too far!
+# 4 = found both and wp-config.php
+# 5 = ERROR: You've gone too far!
 
 # checks if the install has a valid version file
 function wpVersion {
-  echo "This will check the version of WordPress in the directory"
+  echo -e "${bblue}Checking the version of WordPress...${esc}"
   if [[ ${DEBUG} -eq "1" ]]; then
-    echo "The dir being checked: ${1}"  
+    echo "First we check if it exists and then the version: ${1}"  
   fi
-  if [[ -d "${1}wp-includes/" ]]; then
-    liveVer=`grep "wp_version" ${1}wp-includes/version.php|grep =|cut -d"'" -f2`
-    echo "Found version: ${liveVer}";
+  if [[ -f "${1}/wp-includes/version.php" ]]; then
+    if [[ ${DEBUG} -eq "1" ]]; then
+      echo "The version file exists: ${1}/wp-includes/version.php"  
+    fi
+    if [[ ${wpValid} -eq "2" ]] || [[ ${wpValid} -eq "3" ]] || [[ ${wpValid} -eq "4" ]]; then
+      curVer=`grep "wp_version" ${1}/wp-includes/version.php|grep =|cut -d"'" -f2`
+      if [[ `echo ${curVer}|cut -d"." -f1` -lt `echo ${liveVer}|cut -d"." -f1` ]];then
+        echo -e "${cyan}Found local version:  ${bred}${curVer}${esc}";
+      elif [[ `echo ${curVer}|cut -d"." -f1` -eq `echo ${liveVer}|cut -d"." -f1` ]] & [[ `echo ${curVer}|cut -d"." -f2` -lt `echo ${liveVer}|cut -d"." -f2` ]];then
+        echo -e "${cyan}Found local version:  ${bred}${curVer}${esc}";
+      else
+        echo -e "${cyan}Found local version:  ${green}${curVer}${esc}";
+      fi
+      if [[ `echo ${curVer}|cut -d"." -f1` -lt `echo ${liveVer}|cut -d"." -f1` ]];then
+        echo -e "${cyan}The 'latest' version: ${bblue}${liveVer}${esc}";
+      elif [[ `echo ${curVer}|cut -d"." -f1` -eq `echo ${liveVer}|cut -d"." -f1` ]] & [[ `echo ${curVer}|cut -d"." -f2` -lt `echo ${liveVer}|cut -d"." -f2` ]];then
+        echo -e "${cyan}The 'latest' version: ${bblue}${liveVer}${esc}";
+      else
+        echo -e "${cyan}The 'latest' version: ${green}${liveVer}${esc}";
+      fi
+    fi
   fi
-  webVer="";
+  # After this we will do some logic to compare the version
+  # it will also provide choices on how to proceed.
+  if [[ ${curVer} == ${liveVer} ]];then
+    if [[ ${DEBUG} -eq "1" ]]; then
+      echo "The version found and that in 'latest' are the same."
+    fi
+  else
+    echo -e "${cyan}The versions are different.${esc}"
+  fi
+}
+
+# BACKUP: staging wordpress files
+function stagingFallback {
+  if [[ ${DEBUG} -eq "1" ]]; then
+    echo "Fallback stage the new WordPress zip."
+    echo "Cleaning up the tar first."
+  fi
+  rm ${tempFolder}/latest.tar.gz
+  # Pull the zip file 
+  if [[ ${TEST} -ne "1" ]]; then
+    wget -o /dev/null --output-document ${tempFolder}/latest.zip ${wpSRCzip} > /dev/null
+  fi
+  localMD5=`md5sum ${tempFolder}/latest.zip|cut -d" " -f1`
+  webMD5=`curl -s ${wpSRCzipmd5}`
+  if [[ ${DEBUG} -eq "1" ]]; then
+    echo "The downloaded MD5: ${localMD5}."
+    echo "The comparison MD5: ${webMD5}."
+  fi
+  if [[ ${localMD5} == ${webMD5} ]];then
+    echo -e "${bgreen}Downloaded 'latest.zip' and the hash checked out.${esc}"
+    # Extracting contents
+    if [[ ${TEST} -ne "1" ]]; then
+      unzip ${tempFolder}/latest.zip -d  ${tempFolder} > /dev/null
+    fi
+    latestStaged=1;
+  else
+    echo -e "${bred}Downloaded 'latest.zip' and the hash didn't match.${esc}"
+    rm ${tempFolder}/latest.zip
+    echo "Cleaned up the files"
+    exit;
+  fi  
+}
+
+# stages the wordpress files to be updated
+function staging {
+  if [[ ${DEBUG} -eq "1" ]]; then
+    echo "Now we stage the new WordPress files."
+  fi
+  # Pull the tar file 
+  wget -o /dev/null --output-document ${tempFolder}/latest.tar.gz ${wpSRC} > /dev/null
+  localMD5=`md5sum ${tempFolder}/latest.tar.gz|cut -d" " -f1`
+  webMD5=`curl -s ${wpSRCmd5}`
+  if [[ ${DEBUG} -eq "1" ]]; then
+    echo "The downloaded MD5: ${localMD5}."
+    echo "The comparison MD5: ${webMD5}."
+  fi
+  if [[ ${localMD5} == ${webMD5} ]];then
+    echo -e "${bgreen}Downloaded 'latest.tar.gz' and the hash checked out.${esc}"
+    # Extracting contents
+    if [[ ${TEST} -ne "1" ]]; then
+      tar xvzf ${tempFolder}/latest.tar.gz -C ${tempFolder} > /dev/null
+    fi
+    latestStaged=1;
+  else
+    echo "Downloaded 'latest.tar.gz' and the hash didn't match."
+    echo "Will attempt to fall back to zip before failing."
+    if [[ ${TEST} -ne "1" ]]; then
+      stagingFallback;
+    fi
+  fi  
+}
+
+# makes a quick backup of the WP core folders 
+function backUp {
+read -p "Are you sure you would like to proceed?: [Yes/No]" yn
+case $yn in
+  [Yy]* ) echo "Will now continue.";;
+  [Nn]* ) echo "Thanks, now exiting.";exit;;
+  * ) echo "Please answer yes or no.";;
+esac
+  if [[ ${DEBUG} -eq "1" ]]; then
+    echo "Now we backup the current WP core files/folders."
+    echo "The dir being backed up are: ${1}wp-{admin,includes}"
+  fi
+  if [[ ${wpValid} -eq "3" ]] || [[ ${wpValid} -eq "4" ]]; then
+    echo -e "${cyan}Backing up each WP core folder to dir.bak${esc}"
+    if [[ ${TEST} -ne "1" ]]; then
+      echo "Backing up wp-admin"
+      mv ${1}/wp-admin{,.old};
+      echo "Backing up wp-includes"
+      mv ${1}/wp-includes{,.old};
+    fi
+  fi
+}
+
+# updates the files as needed
+function updateFiles {
+if [[ ${latestStaged} -eq "1" ]]; then
+  if [[ ${wpValid} -eq "3" ]] || [[ ${wpValid} -eq "4" ]]; then
+    echo -e "${bcyan}Updating each WP core folder${esc}"
+    echo -e "${byellow}The ownership will be: ${esc}${cpUser}";
+    if [[ ${DEBUG} -eq "1" ]]; then
+      echo -e "${byellow}Updating files into ${esc}${LOCATION}"
+    fi
+    if [[ ${TEST} -ne "1" ]]; then
+      echo -e "${cyan}Replacing ${bred}wp-admin${esc}"
+      mv ${tempFolder}/wordpress/wp-admin ${LOCATION};
+      chown -R ${cpUser} ${LOCATION}/wp-admin;
+      echo -e "${cyan}Replacing ${bred}wp-includes${esc}"
+      mv ${tempFolder}/wordpress/wp-includes ${LOCATION};
+      chown -R ${cpUser} ${LOCATION}/wp-includes;
+      echo -e "${bgreen}SUCCESS: ${On_ICyan}The files have now been updated/replaced!${esc}";
+    fi
+    if [[ ${TEST} -eq "1" ]]; then
+      echo "Acutally doing nothing since this is testing mode.";
+      echo "Exiting now."
+    fi
+  fi
+else
+  echo -e "${bred}FAILURE: ${On_Yellow}The files were not staged properly; cannot proceed.${esc}";
+  exit;
+fi
 }
 
 # Any script code should be declared above this.
 OPTIND=1;
 # Anything in the case above has priority over flags below
-while getopts ":u:t:hpaldsu" opt; do
+while getopts ":u:t:hsd" opt; do
   case "${opt}" in
     u)
       header;
       LOCATION=${OPTARG}
       exists $LOCATION;
-      echo "The directory: ${LOCATION} is a thing.";
+      if [[ ${DEBUG} -eq "1" ]]; then
+        echo "The directory being checked is: ${LOCATION}";
+      fi
       wpCheck $LOCATION;
+      staging
+      backUp $LOCATION;
+      updateFiles;
     ;;
     t)
       header;
       LOCATION=${OPTARG}
       exists $LOCATION;
-      echo "The directory: ${LOCATION} is a thing.";
+      if [[ ${DEBUG} -eq "1" ]]; then
+        echo "The directory being checked is: ${LOCATION}";
+      fi
       wpCheck $LOCATION;
+      staging
+      backUp $LOCATION;
+      updateFiles;
     ;;
     h)
       header;
-    ;;
-    p)
-      header;
-    ;;
-    a)
-      header;
-    ;;
-    l)
-      header;
+      usage;
     ;;
     \?)
       header;
