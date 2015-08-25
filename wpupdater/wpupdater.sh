@@ -1,9 +1,9 @@
 #!/bin/bash
 # This script is a simple tool for quickly updating or fixing WordPress core files.
 author="Dan Pock"
-ver="0.0.5 alpha"
+ver="0.0.7 alpha"
 progFolder="/root/scripts/wpupdater"
-progMD5="/root/scripts/wpupdater/wpupdater.md5"
+progMD5="/root/scripts/wpupdater/wpupdater.sh.md5"
 tempFolder="/home/temp/wpupdater"
 temp="${tempFolder}/failtemp"
 
@@ -17,7 +17,7 @@ wpSRCmd5="https://wordpress.org/latest.tar.gz.md5"
 wpSRCzip="https://wordpress.org/latest.zip"
 wpSRCzipmd5="https://wordpress.org/latest.zip.md5"
 webColor="https://raw.githubusercontent.com/MallardDuck/rmsafe/safeColor/rmsafe/colors?token=AAl1ohgbNeMspd4YzW4X7HglIGQ1ZSZXks5V42q_wA%3D%3D"
-webMD5="https://raw.githubusercontent.com/MallardDuck/rmsafe/safeColor/rmsafe/colors?token=AAl1ohgbNeMspd4YzW4X7HglIGQ1ZSZXks5V42q_wA%3D%3D"
+webMD5="https://grandmascookieblog.com/wpupdater/wpupdater.sh.md5"
 sshIP=`echo $SSH_CLIENT|awk '{print$1}'`
 DATE=`date +%y%m%d%H%S`
 color="${progFolder}/colors"
@@ -28,6 +28,7 @@ while getopts ":u:t:hds" opt; do
   case "${opt}" in
     s)
       SKIP=1
+      echo "Skiping self hash check"
     ;;
     t)
       TEST=1
@@ -80,37 +81,6 @@ if [[ ${DEBUG} -eq "1" ]]; then
   echo "The web version is: ${liveVer}";
 fi
 
-
-# Hash Check
-#   If the has of this script doesn't checkout then
-#   the script should kill itself to prevent issues.
-valHash=`cat ${progMD5}|cut -d" " -f1`
-liveHash=`md5sum ${progFolder}/wpupdater.sh|cut -d" " -f1`
-if [[ ${DEBUG} -eq "1" ]]; then
-  echo "The current hash is: ${liveHash}";
-  echo "The expect. hash is: ${valHash}";
-fi
-if [ "${valHash}" == "${liveHash}"  ]; then
-  if [[ ${DEBUG} -eq "1" ]]; then
-    echo "The Hashs match each other; the program will proceed";
-  fi
-elif [ "${valHash}" != "${liveHash}"  ]; then
-    echo "There is a Hash mismatch."
-    if [[ ${SKIP} -eq "0" ]]; then
-      echo "In the future you might be able to skip this with a flag."
-      echo "Exiting now."
-      exit;
-    fi
-    if [[ ${SKIP} -eq "1" ]]; then
-      echo "Hash validation being skipped; proceeding.";
-    fi
-else  
-  echo "Something very odd occured; exiting."
-  echo "This can be reported to: dpock@liquidweb.com"
-  echo "Please provdie at least the following info: `date;hostname;w;pwd;`"
-  exit;
-fi;
-
 # Imports
 . ${color}
 
@@ -142,6 +112,7 @@ usage() {
     echo -e "    -t - Runs the script in test mode. [DRYRUN mode]"
     echo -e "    -u - Runs the script in active mode."
     echo -e "    -f - Finds and displays WordPress instances that were found."
+    echo -e "    -s - Skips the MD5 checking of this script."
     echo -e "    -h - Prints the header and help info."
     echo ""
     echo -e "${bblue}Example:${bcyan}"
@@ -356,9 +327,9 @@ esac
     echo -e "${cyan}Backing up each WP core folder to dir.bak${esc}"
     if [[ ${TEST} -ne "1" ]]; then
       echo "Backing up wp-admin"
-      mv ${1}/wp-admin{,.old};
+      mv ${1}/wp-admin{,.${DATE}.old};
       echo "Backing up wp-includes"
-      mv ${1}/wp-includes{,.old};
+      mv ${1}/wp-includes{,.${DATE}.old};
     fi
   fi
 }
@@ -439,4 +410,39 @@ while getopts ":u:t:hsd" opt; do
   esac
 done;
 
-[ -z $1 ] && { header;usage; }
+[ -z $1 ] && { SKIP=1;header;usage; }
+
+# Hash Check
+#   If the has of this script doesn't checkout then
+#   the script should kill itself to prevent issues.
+#   Moved here for better functionality
+valHash=`cat ${progMD5}|cut -d" " -f1`
+liveHash=`md5sum ${progFolder}/wpupdater.sh|cut -d" " -f1`
+if [[ ${DEBUG} -eq "1" ]]; then
+  echo "The current hash is: ${liveHash}";
+  echo "The expect. hash is: ${valHash}";
+fi
+if [ "${valHash}" == "${liveHash}"  ]; then
+  if [[ ${DEBUG} -eq "1" ]]; then
+    echo "The Hashs match each other; the program will proceed";
+  fi
+elif [ "${valHash}" != "${liveHash}"  ]; then
+    echo "There is a Hash mismatch."
+    # Need to add some fall back code that will attempt to pull the hash file,
+    # recheck compared to the new file and then proceed as needed.
+    #wget -o /dev/null --output-document ${progMd5} ${webMD5} > /dev/null
+    if [[ ${SKIP} -eq "0" ]]; then
+      echo "In the future you might be able to skip this with a flag."
+      echo "Exiting now."
+      exit;
+    fi
+    if [[ ${SKIP} -eq "1" ]]; then
+      echo "Hash validation being skipped; proceeding.";
+    fi
+else  
+  echo "Something very odd occured; exiting."
+  echo "This can be reported to: dpock@liquidweb.com"
+  echo "Please provdie at least the following info: `date;hostname;w;pwd;`"
+  exit;
+fi;
+
