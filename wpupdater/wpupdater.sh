@@ -1,9 +1,9 @@
 #!/bin/bash
 # This script is a simple tool for quickly updating or fixing WordPress core files.
 author="Dan Pock"
-ver="0.0.7 alpha"
-progFolder="/root/scripts/wpupdater"
-progMD5="/root/scripts/wpupdater/wpupdater.sh.md5"
+ver="0.0.8 alpha"
+progFolder="/usr/local/src/wpupdater"
+progMD5="${progFolder}/wpupdater.sh.md5"
 tempFolder="/home/temp/wpupdater"
 temp="${tempFolder}/failtemp"
 
