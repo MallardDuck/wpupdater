@@ -1,7 +1,7 @@
 #!/bin/bash
 # This script is a simple tool for quickly updating or fixing WordPress core files.
 author="Dan Pock"
-ver="0.0.8 alpha"
+ver="0.0.9 alpha"
 progFolder="/usr/local/src/wpupdater"
 progMD5="${progFolder}/wpupdater.sh.md5"
 tempFolder="/home/temp/wpupdater"
@@ -24,7 +24,7 @@ color="${progFolder}/colors"
 
 
 # Function to catch the priority flags.
-while getopts ":u:t:hds" opt; do
+while getopts ":u:t:hdsv" opt; do
   case "${opt}" in
     s)
       SKIP=1
@@ -33,8 +33,12 @@ while getopts ":u:t:hds" opt; do
     t)
       TEST=1
     ;;
+    v)
+      VERBOSE=1
+    ;;
     d)
       DEBUG=1
+      VERBOSE=1
       echo "Debugging Enabled"
     ;;
   esac
@@ -75,11 +79,42 @@ if [ -d "${progFolder}" ]; then
   fi
 fi
 
-
-# Debug for web versions
+# Hash Check
+#   If the has of this script doesn't checkout then
+#   the script should kill itself to prevent issues.
+valHash=`cat ${progMD5}|cut -d" " -f1`
+liveHash=`md5sum ${progFolder}/wpupdater.sh|cut -d" " -f1`
 if [[ ${DEBUG} -eq "1" ]]; then
-  echo "The web version is: ${liveVer}";
+  echo "Validating this script";
+  echo "The current hash is: ${liveHash}";
+  echo "The expect. hash is: ${valHash}";
 fi
+if [ "${valHash}" == "${liveHash}"  ]; then
+  if [[ ${DEBUG} -eq "1" ]]; then
+    echo "The Hashs match each other; the program will proceed";
+  fi
+elif [ "${valHash}" != "${liveHash}"  ]; then
+    echo "There is a Hash mismatch; will attempt to recheck hash once."
+    # Need to add some fall back code that will attempt to pull the hash file,
+    # recheck compared to the new file and then proceed as needed.
+    echo "code for recheck should be here";
+    #wget -o /dev/null --output-document ${progMd5} ${webMD5} > /dev/null
+    if [[ ${SKIP} -eq "0" ]]; then
+      echo "If you know what you're doing you can skip this with the: '-s' flag."
+      echo "Exiting now."
+      exit;
+    fi
+    if [[ ${SKIP} -eq "1" ]]; then
+      echo "Hash validation being skipped; proceeding.";
+      echo "Proceed with caution; may eat your cat."
+      sleep 5;
+    fi
+else
+  echo "Something very odd occured; exiting."
+  echo "This can be reported to: dpock@liquidweb.com"
+  echo "Please provdie at least the following info: `date;hostname;w;pwd;`"
+  exit;
+fi;
 
 # Imports
 . ${color}
@@ -157,14 +192,14 @@ countDis(){
 function wpCheck {
   wpValid=0;
   echo -e "${bcyan}Starting WordPress check on: ${esc}$1"
-  if [[ ${DEBUG} -eq "1" ]]; then
+  if [[ ${VERBOSE} -eq "1" ]]; then
     echo "Doing a check for wp-admin"  
   fi
   if [[ -d $1/wp-admin ]]; then
     wpValid=1;
   fi
 
-  if [[ ${DEBUG} -eq "1" ]]; then
+  if [[ ${VERBOSE} -eq "1" ]]; then
     echo "The wp-admin results are [1]: ${wpValid}"  
     echo "Doing a check for wp-include"  
   fi
@@ -172,9 +207,8 @@ function wpCheck {
     wpValid=2;
   fi
 
-  if [[ ${DEBUG} -eq "1" ]]; then
+  if [[ ${VERBOSE} -eq "1" ]]; then
     echo "The wp-includes results are [2]: ${wpValid}"  
-    echo "Doing a check for both wp-admin & wp-include"  
   fi
   if [[ -d $1/wp-admin ]] & [[ -d $1/wp-includes ]]; then
     wpValid=3;
@@ -196,9 +230,6 @@ function wpCheck {
   fi
   if [[ ${wpValid} -eq "3" ]] || [[ ${wpValid} -eq "4" ]]; then
     echo -e "${bgreen}I think we found a valid WordPress, checking version now.${esc}"
-    if [[ ${DEBUG} -eq "1" ]]; then
-      echo "Checking ${1}/wp-includes/version.php for the version"  
-    fi
     wpVersion $1
   fi
 }
@@ -214,14 +245,18 @@ function wpCheck {
 # checks if the install has a valid version file
 function wpVersion {
   echo -e "${bblue}Checking the version of WordPress...${esc}"
+  # Debug for web versions
   if [[ ${DEBUG} -eq "1" ]]; then
-    echo "First we check if it exists and then the version: ${1}"  
+    echo "The web version is: ${liveVer}";
+  fi
+  if [[ ${VERBOSE} -eq "1" ]]; then
+    echo "We check if it exists and what version if it does: ${1}"  
   fi
   if [[ -f "${1}/wp-includes/version.php" ]]; then
     if [[ ${DEBUG} -eq "1" ]]; then
       echo "The version file exists: ${1}/wp-includes/version.php"  
     fi
-    if [[ ${wpValid} -eq "2" ]] || [[ ${wpValid} -eq "3" ]] || [[ ${wpValid} -eq "4" ]]; then
+    if [[ ${wpValid} -eq "3" ]] || [[ ${wpValid} -eq "4" ]]; then
       curVer=`grep "wp_version" ${1}/wp-includes/version.php|grep =|cut -d"'" -f2`
       if [[ `echo ${curVer}|cut -d"." -f1` -lt `echo ${liveVer}|cut -d"." -f1` ]];then
         echo -e "${cyan}Found local version:  ${bred}${curVer}${esc}";
@@ -242,7 +277,7 @@ function wpVersion {
   # After this we will do some logic to compare the version
   # it will also provide choices on how to proceed.
   if [[ ${curVer} == ${liveVer} ]];then
-    if [[ ${DEBUG} -eq "1" ]]; then
+    if [[ ${VERBOSE} -eq "1" ]]; then
       echo "The version found and that in 'latest' are the same."
     fi
   else
@@ -252,7 +287,7 @@ function wpVersion {
 
 # BACKUP: staging wordpress files
 function stagingFallback {
-  if [[ ${DEBUG} -eq "1" ]]; then
+  if [[ ${VERBOSE} -eq "1" ]]; then
     echo "Fallback stage the new WordPress zip."
     echo "Cleaning up the tar first."
   fi
@@ -284,7 +319,7 @@ function stagingFallback {
 
 # stages the wordpress files to be updated
 function staging {
-  if [[ ${DEBUG} -eq "1" ]]; then
+  if [[ ${VERBOSE} -eq "1" ]]; then
     echo "Now we stage the new WordPress files."
   fi
   # Pull the tar file 
@@ -303,8 +338,8 @@ function staging {
     fi
     latestStaged=1;
   else
-    echo "Downloaded 'latest.tar.gz' and the hash didn't match."
-    echo "Will attempt to fall back to zip before failing."
+    echo "The downloaded 'latest.tar.gz' and the hash didn't match."
+    echo "Will attempt to fallback to zip before failing."
     if [[ ${TEST} -ne "1" ]]; then
       stagingFallback;
     fi
@@ -319,9 +354,9 @@ case $yn in
   [Nn]* ) echo "Thanks, now exiting.";exit;;
   * ) echo "Please answer yes or no.";;
 esac
-  if [[ ${DEBUG} -eq "1" ]]; then
+  if [[ ${VERBOSE} -eq "1" ]]; then
     echo "Now we backup the current WP core files/folders."
-    echo "The dir being backed up are: ${1}wp-{admin,includes}"
+    echo "The dirs being backed up are: ${1}wp-{admin,includes}"
   fi
   if [[ ${wpValid} -eq "3" ]] || [[ ${wpValid} -eq "4" ]]; then
     echo -e "${cyan}Backing up each WP core folder to dir.bak${esc}"
@@ -350,7 +385,7 @@ if [[ ${latestStaged} -eq "1" ]]; then
       echo -e "${cyan}Replacing ${bred}wp-includes${esc}"
       mv ${tempFolder}/wordpress/wp-includes ${LOCATION};
       chown -R ${cpUser} ${LOCATION}/wp-includes;
-      echo -e "${bgreen}SUCCESS: ${On_ICyan}The files have now been updated/replaced!${esc}";
+      echo -e "${bgreen}SUCCESS: The files have now been updated/replaced!${esc}";
     fi
     if [[ ${TEST} -eq "1" ]]; then
       echo "Acutally doing nothing since this is testing mode.";
@@ -366,13 +401,13 @@ fi
 # Any script code should be declared above this.
 OPTIND=1;
 # Anything in the case above has priority over flags below
-while getopts ":u:t:hsd" opt; do
+while getopts ":u:t:hsdv" opt; do
   case "${opt}" in
     u)
       header;
       LOCATION=${OPTARG}
       exists $LOCATION;
-      if [[ ${DEBUG} -eq "1" ]]; then
+      if [[ ${VERBOSE} -eq "1" ]]; then
         echo "The directory being checked is: ${LOCATION}";
       fi
       wpCheck $LOCATION;
@@ -384,7 +419,7 @@ while getopts ":u:t:hsd" opt; do
       header;
       LOCATION=${OPTARG}
       exists $LOCATION;
-      if [[ ${DEBUG} -eq "1" ]]; then
+      if [[ ${VERBOSE} -eq "1" ]]; then
         echo "The directory being checked is: ${LOCATION}";
       fi
       wpCheck $LOCATION;
@@ -411,38 +446,4 @@ while getopts ":u:t:hsd" opt; do
 done;
 
 [ -z $1 ] && { SKIP=1;header;usage; }
-
-# Hash Check
-#   If the has of this script doesn't checkout then
-#   the script should kill itself to prevent issues.
-#   Moved here for better functionality
-valHash=`cat ${progMD5}|cut -d" " -f1`
-liveHash=`md5sum ${progFolder}/wpupdater.sh|cut -d" " -f1`
-if [[ ${DEBUG} -eq "1" ]]; then
-  echo "The current hash is: ${liveHash}";
-  echo "The expect. hash is: ${valHash}";
-fi
-if [ "${valHash}" == "${liveHash}"  ]; then
-  if [[ ${DEBUG} -eq "1" ]]; then
-    echo "The Hashs match each other; the program will proceed";
-  fi
-elif [ "${valHash}" != "${liveHash}"  ]; then
-    echo "There is a Hash mismatch."
-    # Need to add some fall back code that will attempt to pull the hash file,
-    # recheck compared to the new file and then proceed as needed.
-    #wget -o /dev/null --output-document ${progMd5} ${webMD5} > /dev/null
-    if [[ ${SKIP} -eq "0" ]]; then
-      echo "In the future you might be able to skip this with a flag."
-      echo "Exiting now."
-      exit;
-    fi
-    if [[ ${SKIP} -eq "1" ]]; then
-      echo "Hash validation being skipped; proceeding.";
-    fi
-else  
-  echo "Something very odd occured; exiting."
-  echo "This can be reported to: dpock@liquidweb.com"
-  echo "Please provdie at least the following info: `date;hostname;w;pwd;`"
-  exit;
-fi;
 
